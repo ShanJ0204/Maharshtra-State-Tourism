@@ -61,6 +61,8 @@ export interface RunConfig {
 
 export interface RunSummary {
   totalQueries: number;
+  /** Queries that errored (excluded from rate denominators). */
+  failedQueries: number;
   mentionRate: number;
   citationRate: number;
   avgPosition: number | null;
@@ -72,6 +74,7 @@ export interface RunSummary {
     EngineId,
     {
       queries: number;
+      failed: number;
       mentions: number;
       mentionRate: number;
       citations: number;

@@ -33,7 +33,7 @@ function mockPrompts(description: string, count: number): GeneratedPrompt[] {
     words.pop();
   }
   const topic = words.join(" ") || "this category";
-  const templates: GeneratedPrompt[] = [
+  const base: GeneratedPrompt[] = [
     { prompt: `What are the best options for ${topic}?`, category: "best-of" },
     { prompt: `Which ${topic} solution should a small business choose?`, category: "comparison" },
     { prompt: `Recommend a reliable provider for ${topic}`, category: "recommendation" },
@@ -45,7 +45,38 @@ function mockPrompts(description: string, count: number): GeneratedPrompt[] {
     { prompt: `Who are the leading companies in ${topic}?`, category: "leaders" },
     { prompt: `What should I look for when picking ${topic}?`, category: "buying-guide" },
   ];
-  return templates.slice(0, count);
+  // Audience qualifiers let us produce as many distinct prompts as requested
+  // (the 10 base templates alone can't satisfy a 20- or 30-prompt request).
+  const audiences = [
+    "for startups",
+    "for enterprise teams",
+    "for freelancers",
+    "for remote teams",
+    "for nonprofits",
+    "for agencies",
+    "in 2025",
+    "for large organizations",
+  ];
+
+  const out: GeneratedPrompt[] = [];
+  const seen = new Set<string>();
+  const push = (p: GeneratedPrompt) => {
+    if (out.length >= count || seen.has(p.prompt)) return;
+    seen.add(p.prompt);
+    out.push(p);
+  };
+
+  base.forEach(push);
+  // Then expand with audience-qualified variants until we hit the count.
+  for (const aud of audiences) {
+    if (out.length >= count) break;
+    for (const t of base) {
+      if (out.length >= count) break;
+      const q = t.prompt.replace(/\?$/, "").trim();
+      push({ prompt: `${q} ${aud}?`, category: t.category });
+    }
+  }
+  return out.slice(0, count);
 }
 
 export async function POST(req: NextRequest) {

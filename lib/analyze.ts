@@ -62,16 +62,25 @@ function positionFromRatio(ratio: number): Position {
 export function rootDomain(input: string): string {
   let d = input.trim().toLowerCase();
   d = d.replace(/^https?:\/\//, "").replace(/^www\./, "");
-  d = d.split("/")[0];
+  d = d.split("/")[0].split("?")[0].split(":")[0];
   return d;
+}
+
+/** True when two hostnames are equal or one is a subdomain of the other. */
+function hostMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
 }
 
 function domainCited(domain: string | undefined, text: string, citations: Citation[]): boolean {
   if (!domain) return false;
   const root = rootDomain(domain);
   if (!root) return false;
-  if (text.toLowerCase().includes(root)) return true;
-  return citations.some((c) => rootDomain(c.url).includes(root) || root.includes(rootDomain(c.url)));
+  // Boundary match in free text: not glued to other word chars/hyphens, so
+  // "notion.so" matches "app.notion.so" but not "notion.software"/"notnotion.so".
+  const re = new RegExp(`(?<![\\w-])${escapeRegex(root)}(?![\\w-])`, "i");
+  if (re.test(text)) return true;
+  return citations.some((c) => hostMatch(rootDomain(c.url), root));
 }
 
 export function analyzeResult(result: EngineResult, config: RunConfig): Analysis {
@@ -125,7 +134,7 @@ export function topCitedDomains(
     .map(([domain, count]) => ({
       domain,
       count,
-      isBrand: !!brandRoot && (domain.includes(brandRoot) || brandRoot.includes(domain)),
+      isBrand: !!brandRoot && hostMatch(domain, brandRoot),
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
@@ -133,8 +142,12 @@ export function topCitedDomains(
 
 export function summarize(results: AnalyzedResult[], config: RunConfig): RunSummary {
   const totalQueries = results.length;
-  const mentions = results.filter((r) => r.analysis.mentioned).length;
-  const citations = results.filter((r) => r.analysis.domainCited).length;
+  // Failed queries (provider error / rate limit / bad key) are NOT brand misses
+  // — exclude them from the rate denominators so they don't deflate the audit.
+  const ok = results.filter((r) => !r.error);
+  const failedQueries = totalQueries - ok.length;
+  const mentions = ok.filter((r) => r.analysis.mentioned).length;
+  const citations = ok.filter((r) => r.analysis.domainCited).length;
 
   const positions = results
     .map((r) => r.analysis.positionRatio)
@@ -161,21 +174,26 @@ export function summarize(results: AnalyzedResult[], config: RunConfig): RunSumm
   for (const { id } of ENGINES) {
     const rs = results.filter((r) => r.engine === id);
     if (rs.length === 0) continue;
-    const m = rs.filter((r) => r.analysis.mentioned).length;
-    const c = rs.filter((r) => r.analysis.domainCited).length;
+    const rsOk = rs.filter((r) => !r.error);
+    const denom = rsOk.length;
+    const m = rsOk.filter((r) => r.analysis.mentioned).length;
+    const c = rsOk.filter((r) => r.analysis.domainCited).length;
     perEngine[id as EngineId] = {
       queries: rs.length,
+      failed: rs.length - rsOk.length,
       mentions: m,
-      mentionRate: rs.length ? m / rs.length : 0,
+      mentionRate: denom ? m / denom : 0,
       citations: c,
-      citationRate: rs.length ? c / rs.length : 0,
+      citationRate: denom ? c / denom : 0,
     };
   }
 
+  const denom = ok.length;
   return {
     totalQueries,
-    mentionRate: totalQueries ? mentions / totalQueries : 0,
-    citationRate: totalQueries ? citations / totalQueries : 0,
+    failedQueries,
+    mentionRate: denom ? mentions / denom : 0,
+    citationRate: denom ? citations / denom : 0,
     avgPosition,
     shareOfVoice,
     brandMentions,

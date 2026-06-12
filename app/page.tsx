@@ -351,7 +351,11 @@ export default function Page() {
                   label="Mention rate"
                   value={pct(s.mentionRate)}
                   tone={s.mentionRate >= 0.5 ? "good" : s.mentionRate > 0 ? "warn" : "bad"}
-                  sub={`across ${s.totalQueries} queries`}
+                  sub={
+                    s.failedQueries > 0
+                      ? `${s.totalQueries - s.failedQueries} ok · ${s.failedQueries} failed`
+                      : `across ${s.totalQueries} queries`
+                  }
                   delta={prev ? s.mentionRate - prev.mentionRate : undefined}
                 />
                 <Stat
@@ -397,7 +401,7 @@ export default function Page() {
 
               <CitedDomains results={run.results} brandDomain={run.config.domain} />
 
-              {!running && <Recommendations run={run} />}
+              {!running && <Recommendations key={run.runAt} run={run} />}
 
               <div>
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
