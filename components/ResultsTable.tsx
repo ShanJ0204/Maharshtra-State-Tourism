@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import type { AnalyzedResult } from "@/lib/types";
+import { useMemo, useState } from "react";
+import type { AnalyzedResult, EngineId } from "@/lib/types";
+import { ENGINES } from "@/lib/types";
 
 const ENGINE_LABEL: Record<string, string> = {
   claude: "Claude",
@@ -9,6 +10,16 @@ const ENGINE_LABEL: Record<string, string> = {
   gemini: "Gemini",
   perplexity: "Perplexity",
 };
+
+type StatusFilter = "all" | "mentioned" | "missed" | "cited" | "error";
+
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "mentioned", label: "Mentioned" },
+  { value: "missed", label: "Missed" },
+  { value: "cited", label: "Cited" },
+  { value: "error", label: "Errors" },
+];
 
 function Badge({ ok, label }: { ok: boolean; label: string }) {
   return (
@@ -24,9 +35,71 @@ function Badge({ ok, label }: { ok: boolean; label: string }) {
 
 export function ResultsTable({ results }: { results: AnalyzedResult[] }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [engineFilter, setEngineFilter] = useState<"all" | EngineId>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return results.filter((r) => {
+      if (engineFilter !== "all" && r.engine !== engineFilter) return false;
+      if (statusFilter === "mentioned" && !r.analysis.mentioned) return false;
+      if (statusFilter === "missed" && (r.analysis.mentioned || r.error)) return false;
+      if (statusFilter === "cited" && !r.analysis.domainCited) return false;
+      if (statusFilter === "error" && !r.error) return false;
+      if (q && !r.prompt.toLowerCase().includes(q) && !r.answer.toLowerCase().includes(q))
+        return false;
+      return true;
+    });
+  }, [results, engineFilter, statusFilter, search]);
+
+  const presentEngines = useMemo(
+    () => ENGINES.filter((e) => results.some((r) => r.engine === e.id)),
+    [results],
+  );
 
   return (
     <div className="card overflow-hidden">
+      {/* filter bar */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-ink-700 px-4 py-2.5">
+        <input
+          className="input h-8 w-48 text-xs"
+          placeholder="Search prompts & answers…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          className="input h-8 w-auto text-xs"
+          value={engineFilter}
+          onChange={(e) => setEngineFilter(e.target.value as "all" | EngineId)}
+        >
+          <option value="all">All engines</option>
+          {presentEngines.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.label}
+            </option>
+          ))}
+        </select>
+        <div className="flex gap-1">
+          {STATUS_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => setStatusFilter(o.value)}
+              className={`rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+                statusFilter === o.value
+                  ? "bg-accent/20 text-accent-soft"
+                  : "text-gray-500 hover:bg-ink-700"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <span className="ml-auto text-[11px] text-gray-500">
+          {filtered.length} / {results.length}
+        </span>
+      </div>
+
       <div className="grid grid-cols-12 gap-2 border-b border-ink-700 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
         <div className="col-span-5">Prompt</div>
         <div className="col-span-2">Engine</div>
@@ -35,7 +108,12 @@ export function ResultsTable({ results }: { results: AnalyzedResult[] }) {
         <div className="col-span-1">Cited</div>
       </div>
       <div className="divide-y divide-ink-700/60">
-        {results.map((r) => {
+        {filtered.length === 0 && (
+          <div className="px-4 py-6 text-center text-sm text-gray-600">
+            No results match the current filters.
+          </div>
+        )}
+        {filtered.map((r) => {
           const key = `${r.promptId}-${r.engine}`;
           const isOpen = open === key;
           return (

@@ -59,7 +59,7 @@ function positionFromRatio(ratio: number): Position {
   return "late";
 }
 
-function rootDomain(input: string): string {
+export function rootDomain(input: string): string {
   let d = input.trim().toLowerCase();
   d = d.replace(/^https?:\/\//, "").replace(/^www\./, "");
   d = d.split("/")[0];
@@ -94,6 +94,41 @@ export function analyzeResult(result: EngineResult, config: RunConfig): Analysis
     domainCited: domainCited(config.domain, text, result.citations),
     competitorMentions,
   };
+}
+
+export interface CitedDomain {
+  domain: string;
+  count: number;
+  isBrand: boolean;
+}
+
+/**
+ * Aggregate which domains the answer engines cite most across a run — this is
+ * where AEO effort should go: getting featured on these sources.
+ */
+export function topCitedDomains(
+  results: AnalyzedResult[],
+  brandDomain?: string,
+  limit = 12,
+): CitedDomain[] {
+  const counts = new Map<string, number>();
+  for (const r of results) {
+    if (r.mock) continue;
+    for (const c of r.citations) {
+      const d = rootDomain(c.url);
+      if (!d) continue;
+      counts.set(d, (counts.get(d) ?? 0) + 1);
+    }
+  }
+  const brandRoot = brandDomain ? rootDomain(brandDomain) : "";
+  return [...counts.entries()]
+    .map(([domain, count]) => ({
+      domain,
+      count,
+      isBrand: !!brandRoot && (domain.includes(brandRoot) || brandRoot.includes(domain)),
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
 }
 
 export function summarize(results: AnalyzedResult[], config: RunConfig): RunSummary {

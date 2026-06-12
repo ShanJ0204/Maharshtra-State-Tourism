@@ -1,5 +1,19 @@
 import type { PromptRow } from "./types";
 
+/** Quote a value for CSV output when it contains commas, quotes or newlines. */
+export function csvEscape(value: string): string {
+  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/** Serialize prompt rows back into CSV text (used by the prompt generator). */
+export function promptsToCSV(rows: { prompt: string; category?: string }[]): string {
+  const lines = ["prompt,category"];
+  for (const r of rows) {
+    lines.push(`${csvEscape(r.prompt)},${csvEscape(r.category ?? "")}`);
+  }
+  return lines.join("\n");
+}
+
 /**
  * Minimal, dependency-free CSV parser that handles quoted fields, escaped
  * quotes ("") and embedded commas/newlines.

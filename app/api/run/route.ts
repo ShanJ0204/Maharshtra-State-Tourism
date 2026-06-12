@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runEngine } from "@/lib/engines";
 import { analyzeResult, summarize } from "@/lib/analyze";
+import { pLimit, withRetry } from "@/lib/limit";
 import type {
   AnalyzedResult,
   EngineId,
@@ -50,11 +51,14 @@ export async function POST(req: NextRequest) {
     for (const engine of engines) jobs.push({ prompt, engine });
   }
 
+  // Limit fan-out so a large CSV doesn't trip provider rate limits.
+  const limit = pLimit(8);
+
   const results: AnalyzedResult[] = await Promise.all(
-    jobs.map(async ({ prompt, engine }) => {
+    jobs.map(({ prompt, engine }) => limit(async () => {
       const start = Date.now();
       try {
-        const out = await runEngine(engine, prompt.prompt);
+        const out = await withRetry(() => runEngine(engine, prompt.prompt), 1);
         const base = {
           engine,
           promptId: prompt.id,
@@ -80,7 +84,7 @@ export async function POST(req: NextRequest) {
         };
         return { ...base, analysis: analyzeResult(base, config) };
       }
-    }),
+    })),
   );
 
   const summary = summarize(results, config);
